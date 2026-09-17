@@ -121,7 +121,7 @@ export default function ParentDashboard() {
             <div className="w-10 h-10 rounded-full gradient-bg flex items-center justify-center">
               <i className="fas fa-baby text-white text-lg"></i>
             </div>
-            <span className="text-xl font-bold gradient-text">BabyCare</span>
+            <span className="text-xl font-bold gradient-text">SmartCare</span>
           </Link>
         </div>
         <nav className="p-4">

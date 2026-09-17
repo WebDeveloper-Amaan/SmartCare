@@ -47,7 +47,7 @@ router.post('/signup', signupValidation, asyncHandler(async (req, res, next) => 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;border-radius:12px;border:1px solid #e5e7eb">
       <div style="text-align:center;margin-bottom:24px">
-        <h2 style="color:#6EC1E4;margin:0">🍼 FindBabysitter</h2>
+        <h2 style="color:#6EC1E4;margin:0">🍼 SmartCare</h2>
       </div>
       <h3 style="color:#111827">Verify Your Email</h3>
       <p style="color:#6b7280">Hi <strong>${name}</strong>, use the OTP below to verify your email. Expires in <strong>10 minutes</strong>.</p>
@@ -59,7 +59,7 @@ router.post('/signup', signupValidation, asyncHandler(async (req, res, next) => 
   `;
 
   try {
-    await sendEmail({ to: user.email, subject: 'FindBabysitter - Verify Your Email', html });
+    await sendEmail({ to: user.email, subject: 'SmartCare - Verify Your Email', html });
   } catch (err) {
     await User.findByIdAndDelete(user._id);
     return next(new AppError('Failed to send verification email. Please try again.', 500));
@@ -94,6 +94,57 @@ router.post('/verify-email', asyncHandler(async (req, res, next) => {
   user.emailVerificationOTP = undefined;
   user.emailVerificationOTPExpire = undefined;
   await user.save();
+
+  // Send welcome email based on role
+  const isParent = user.role === 'parent'
+  const welcomeHtml = isParent ? `
+    <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:32px;border-radius:16px;border:1px solid #e5e7eb;background:#fff">
+      <div style="text-align:center;margin-bottom:20px">
+        <h2 style="color:#6EC1E4;margin:0;font-size:22px">🍼 SmartCare</h2>
+      </div>
+      <h3 style="color:#111827;margin-bottom:6px">Welcome aboard, ${user.name}! 🎉</h3>
+      <p style="color:#6b7280;line-height:1.6">So glad you're here! Finding the right babysitter for your little one just got a whole lot easier.</p>
+      <p style="color:#6b7280;line-height:1.6">Here's what you can do on SmartCare:</p>
+      <ul style="color:#6b7280;line-height:2;padding-left:20px">
+        <li>🤖 <strong>AI Smart Match</strong> — tell us about your child and we'll rank the best sitters for you</li>
+        <li>🗺️ <strong>Live Map</strong> — see verified sitters near you in real time</li>
+        <li>✅ <strong>KYC Verified</strong> — every sitter is ID-checked, so you can trust who walks through your door</li>
+        <li>💬 <strong>Chat directly</strong> — message sitters before you book, no awkward calls needed</li>
+      </ul>
+      <p style="color:#6b7280;line-height:1.6">We built SmartCare because parents deserve peace of mind. Your child's safety is our #1 priority — always. 💙</p>
+      <div style="text-align:center;margin:28px 0">
+        <a href="http://localhost:3000/smart-match" style="background:linear-gradient(135deg,#6EC1E4,#F9CADA);color:#fff;padding:12px 28px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:15px">Find My Perfect Sitter →</a>
+      </div>
+      <p style="color:#9ca3af;font-size:12px;text-align:center">With love, the SmartCare team 🌸</p>
+    </div>
+  ` : `
+    <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:32px;border-radius:16px;border:1px solid #e5e7eb;background:#fff">
+      <div style="text-align:center;margin-bottom:20px">
+        <h2 style="color:#6EC1E4;margin:0;font-size:22px">🍼 SmartCare</h2>
+      </div>
+      <h3 style="color:#111827;margin-bottom:6px">Welcome, ${user.name}! You're in 🙌</h3>
+      <p style="color:#6b7280;line-height:1.6">Exciting times ahead! You've just joined a community of trusted, caring babysitters across India.</p>
+      <p style="color:#6b7280;line-height:1.6">Here's how to get started and stand out:</p>
+      <ul style="color:#6b7280;line-height:2;padding-left:20px">
+        <li>📸 <strong>Complete your profile</strong> — a great photo and bio get you 3x more bookings</li>
+        <li>🛡️ <strong>Submit your KYC</strong> — get the verified badge parents trust most</li>
+        <li>🗓️ <strong>Set your availability</strong> — so parents can find you on the right days</li>
+        <li>💬 <strong>Chat with parents</strong> — build trust before the first booking</li>
+      </ul>
+      <p style="color:#6b7280;line-height:1.6">Parents on SmartCare are looking for someone exactly like you. We're here to help you build a career you love. 💙</p>
+      <div style="text-align:center;margin:28px 0">
+        <a href="http://localhost:3000/babysitter-dashboard" style="background:linear-gradient(135deg,#6EC1E4,#F9CADA);color:#fff;padding:12px 28px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:15px">Set Up My Profile →</a>
+      </div>
+      <p style="color:#9ca3af;font-size:12px;text-align:center">With love, the SmartCare team 🌸</p>
+    </div>
+  `
+
+  // Fire and forget — don't block the response if email fails
+  sendEmail({
+    to: user.email,
+    subject: isParent ? '🎉 Welcome to SmartCare — let\'s find your perfect sitter!' : '🎉 Welcome to SmartCare — parents are looking for you!',
+    html: welcomeHtml
+  }).catch(() => {})
 
   const token = user.getSignedJwtToken();
   res.json({
@@ -223,7 +274,7 @@ router.post('/forgot-password', asyncHandler(async (req, res, next) => {
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;border-radius:12px;border:1px solid #e5e7eb">
       <div style="text-align:center;margin-bottom:24px">
-        <h2 style="color:#6EC1E4;margin:0">🍼 FindBabysitter</h2>
+        <h2 style="color:#6EC1E4;margin:0">🍼 SmartCare</h2>
       </div>
       <h3 style="color:#111827">Reset Your Password</h3>
       <p style="color:#6b7280">Use the OTP below to reset your password. It expires in <strong>10 minutes</strong>.</p>
@@ -235,7 +286,7 @@ router.post('/forgot-password', asyncHandler(async (req, res, next) => {
   `;
 
   try {
-    await sendEmail({ to: user.email, subject: 'FindBabysitter - Password Reset OTP', html });
+    await sendEmail({ to: user.email, subject: 'SmartCare - Password Reset OTP', html });
   } catch (err) {
     user.resetPasswordOTP = undefined;
     user.resetPasswordOTPExpire = undefined;

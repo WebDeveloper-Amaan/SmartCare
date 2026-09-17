@@ -22,7 +22,7 @@ export default function Footer() {
               <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center">
                 <i className="fas fa-baby text-white"></i>
               </div>
-              <span className="text-xl font-bold">FindBabysitter</span>
+              <span className="text-xl font-bold">SmartCare</span>
             </Link>
             <p className="text-gray-400 nunito text-sm leading-relaxed mb-6">
               India's most trusted platform connecting parents with KYC-verified babysitters across Delhi NCR.
@@ -84,7 +84,7 @@ export default function Footer() {
         <div className="border-t border-gray-800 pt-8 mb-6">
           <div className="flex flex-wrap gap-6 justify-center md:justify-start">
             {[
-              { icon: 'fa-envelope', text: 'support@findbabysitter.in' },
+              { icon: 'fa-envelope', text: 'support@smartcare.in' },
               { icon: 'fa-phone', text: '+91 98765 43210' },
               { icon: 'fa-map-marker-alt', text: 'Delhi NCR, India' },
             ].map(c => (
@@ -99,7 +99,7 @@ export default function Footer() {
         {/* Bottom */}
         <div className="border-t border-gray-800 pt-6 flex flex-col md:flex-row justify-between items-center gap-3">
           <p className="text-gray-500 text-sm">
-            © {new Date().getFullYear()} FindBabysitter. All rights reserved. Made with ❤️ for parents in India 🇮🇳
+            © {new Date().getFullYear()} SmartCare. All rights reserved. Made with ❤️ for parents in India 🇮🇳
           </p>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>

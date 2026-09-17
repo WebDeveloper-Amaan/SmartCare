@@ -110,7 +110,7 @@ export default function Signup() {
     try {
       const { data } = await api.post('/auth/verify-email', { email: registeredEmail, otp })
       login(data.token, data.user)
-      toast.success(`Welcome to FindBabysitter, ${data.user.name.split(' ')[0]}! 🎉`)
+      toast.success(`Welcome to SmartCare, ${data.user.name.split(' ')[0]}! 🎉`)
       if (data.user.role === 'babysitter') navigate('/babysitter-dashboard')
       else navigate('/parent-dashboard')
     } catch (err) {
@@ -141,7 +141,7 @@ export default function Signup() {
             {step === 'form' ? 'Create Account' : 'Verify Your Email'}
           </h1>
           <p className="text-gray-500 text-sm mt-1">
-            {step === 'form' ? "Join FindBabysitter today — it's free!" : `OTP sent to ${registeredEmail}`}
+            {step === 'form' ? "Join SmartCare today — it's free!" : `OTP sent to ${registeredEmail}`}
           </p>
         </div>
 

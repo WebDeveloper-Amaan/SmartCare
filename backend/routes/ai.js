@@ -8,7 +8,7 @@ const router = express.Router()
 const User = require('../models/User')
 const { protect } = require('../middleware/auth')
 
-// ── Lazy-init Gemini so missing key doesn't crash the whole server ──
+// ── Lazy-init Gemini — recreate if key changes ──
 let geminiModel = null
 function getGemini() {
   if (!geminiModel) {
@@ -133,7 +133,7 @@ router.post('/chat', async (req, res) => {
     const { messages } = req.body
     if (!messages?.length) return res.status(400).json({ error: 'messages required' })
 
-    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
+    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.startsWith('AQ.') || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
       return res.json({ reply: getFallbackReply(messages[messages.length - 1]?.content || '') })
     }
 

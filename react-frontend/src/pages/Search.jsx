@@ -46,14 +46,10 @@ function MatchBadge({ score }) {
   )
 }
 
-const SKILLS_OPTIONS = ['First Aid', 'Homework Help', 'Cooking', 'Swimming', 'Special Needs Care', 'Newborn Care', 'Arts & Crafts', 'Music', 'Tutoring', 'Outdoor Activities']
-
 export default function Search() {
   const [babysitters, setBabysitters] = useState([])
   const [loading, setLoading] = useState(false)
   const [aiMode, setAiMode] = useState(false)
-  const [aiPanelOpen, setAiPanelOpen] = useState(false)
-  const [aiPrefs, setAiPrefs] = useState({ maxBudget: '', childAgeGroup: '', requiredSkills: [] })
   const [filters, setFilters] = useState({ location: '', maxRate: '', minRating: '', verifiedOnly: false, sortBy: 'rating' })
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -61,13 +57,6 @@ export default function Search() {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const { user } = useAuth()
   const navigate = useNavigate()
-
-  const toggleSkill = (skill) => setAiPrefs(p => ({
-    ...p,
-    requiredSkills: p.requiredSkills.includes(skill)
-      ? p.requiredSkills.filter(s => s !== skill)
-      : [...p.requiredSkills, skill]
-  }))
 
   const fetchBabysitters = async (p = 1) => {
     setLoading(true)
@@ -85,39 +74,29 @@ export default function Search() {
     }
   }
 
-  const runAIMatch = async () => {
-    setLoading(true)
-    setAiPanelOpen(false)
-    try {
-      const { data } = await api.post('/smartmatch/run', {
-        preferences: {
-          maxBudget: aiPrefs.maxBudget ? parseInt(aiPrefs.maxBudget) : undefined,
-          childAgeGroup: aiPrefs.childAgeGroup || undefined,
-          requiredSkills: aiPrefs.requiredSkills
-        }
-      })
-      const sitters = (data.babysitters || []).map(s => ({ ...s, matchScore: s.finalScore }))
-      setBabysitters(sitters)
-      setTotalPages(1)
-      setPage(1)
-      setAiMode(true)
-      toast.success(`AI ranked ${sitters.length} babysitters for you`)
-    } catch {
-      toast.error('AI match failed. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const clearAI = () => {
     setAiMode(false)
-    setAiPrefs({ maxBudget: '', childAgeGroup: '', requiredSkills: [] })
+    localStorage.removeItem('smartmatch_results')
     fetchBabysitters(1)
   }
 
-  useEffect(() => { fetchBabysitters() }, [])
+  // Load AI results from SmartMatch page if redirected back
+  useEffect(() => {
+    const stored = localStorage.getItem('smartmatch_results')
+    if (stored) {
+      try {
+        const sitters = JSON.parse(stored)
+        setBabysitters(sitters)
+        setAiMode(true)
+        setTotalPages(1)
+        setPage(1)
+      } catch { fetchBabysitters() }
+    } else {
+      fetchBabysitters()
+    }
+  }, [])
 
-  const handleSearch = e => { e.preventDefault(); setAiMode(false); fetchBabysitters(1); setFiltersOpen(false) }
+  const handleSearch = e => { e.preventDefault(); clearAI(); setFiltersOpen(false) }
 
   const handleNearbySearch = (nearbySitters) => {
     setBabysitters(nearbySitters)
@@ -229,66 +208,13 @@ export default function Search() {
           {aiMode && <button onClick={clearAI} className="text-xs text-gray-400 hover:text-red-400 transition"><i className="fas fa-times mr-1"></i>Clear</button>}
         </div>
         <div className="flex items-center gap-2">
-          {/* AI Match button + inline panel */}
-          <div className="relative">
-            <button
-              onClick={() => setAiPanelOpen(o => !o)}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold border-2 transition ${
-                aiMode ? 'gradient-bg text-white border-transparent shadow-md' : 'border-[#6EC1E4] text-[#6EC1E4] hover:bg-[#6EC1E4]/10'
-              }`}
-            >
-              <i className="fas fa-robot"></i>
-              {aiMode ? 'AI On' : 'AI Match'}
-            </button>
-            {aiPanelOpen && (
-              <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 z-50">
-                <p className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
-                  <i className="fas fa-robot text-[#6EC1E4]"></i> Quick AI Match
-                </p>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Max Budget (₹/hr)</label>
-                    <input
-                      type="number" placeholder="e.g. 500"
-                      value={aiPrefs.maxBudget}
-                      onChange={e => setAiPrefs(p => ({ ...p, maxBudget: e.target.value }))}
-                      className="w-full border-b-2 border-gray-200 py-1.5 mt-1 focus:border-[#6EC1E4] outline-none text-sm bg-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Child Age Group</label>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {['Infant (0-1)', 'Toddler (1-3)', 'Preschool (3-5)', 'School Age (5+)'].map(ag => (
-                        <button key={ag} type="button"
-                          onClick={() => setAiPrefs(p => ({ ...p, childAgeGroup: p.childAgeGroup === ag ? '' : ag }))}
-                          className={`px-2.5 py-1 rounded-full text-xs font-medium border transition ${
-                            aiPrefs.childAgeGroup === ag ? 'gradient-bg text-white border-transparent' : 'border-gray-200 text-gray-600 hover:border-[#6EC1E4]'
-                          }`}>{ag}</button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Skills Needed</label>
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {SKILLS_OPTIONS.map(s => (
-                        <button key={s} type="button"
-                          onClick={() => toggleSkill(s)}
-                          className={`px-2.5 py-1 rounded-full text-xs font-medium border transition ${
-                            aiPrefs.requiredSkills.includes(s) ? 'gradient-bg text-white border-transparent' : 'border-gray-200 text-gray-600 hover:border-[#6EC1E4]'
-                          }`}>{s}</button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <button
-                  onClick={runAIMatch}
-                  className="mt-4 w-full gradient-bg text-white py-2.5 rounded-xl text-sm font-bold hover:opacity-90 transition flex items-center justify-center gap-2"
-                >
-                  <i className="fas fa-robot"></i> Find My Best Matches
-                </button>
-              </div>
-            )}
-          </div>
+          {/* AI Match — links to full SmartMatch wizard */}
+          <Link
+            to="/smart-match"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold border-2 border-[#6EC1E4] text-[#6EC1E4] hover:bg-[#6EC1E4]/10 transition"
+          >
+            <i className="fas fa-robot"></i> AI Match
+          </Link>
           <div className="flex items-center bg-white rounded-xl shadow-sm border border-gray-200 p-1">
             <button
               onClick={() => setViewMode('map')}

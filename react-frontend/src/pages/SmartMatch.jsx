@@ -213,6 +213,11 @@ export default function SmartMatch() {
       const { data } = await api.post('/smartmatch/run', { preferences: prefs })
       setResults(data)
       setStep(4)
+      // Save to localStorage so Search map can display AI-matched sitters
+      if (!data.noResults && data.babysitters?.length) {
+        const sitters = data.babysitters.map(s => ({ ...s, matchScore: s.finalScore }))
+        localStorage.setItem('smartmatch_results', JSON.stringify(sitters))
+      }
     } catch {
       toast.error('Something went wrong. Please try again.')
     } finally {
@@ -402,7 +407,13 @@ export default function SmartMatch() {
                       <MatchCard key={s._id} sitter={s} rank={i + 1} />
                     ))}
                   </div>
-                  <div className="mt-8 text-center">
+                  <div className="mt-8 text-center flex flex-col items-center gap-3">
+                    <Link
+                      to="/search"
+                      className="inline-flex items-center gap-2 gradient-bg text-white px-6 py-2.5 rounded-xl font-semibold hover:opacity-90 transition shadow-md"
+                    >
+                      <i className="fas fa-map-marked-alt"></i> View Matches on Map
+                    </Link>
                     <Link to="/search" className="text-sm text-gray-400 hover:text-[#6EC1E4] transition">
                       <i className="fas fa-search mr-1"></i>Browse all babysitters instead
                     </Link>
