@@ -12,23 +12,45 @@ function RouteRenderer({ origin, destination }) {
   const polylineRef = useRef(null)
 
   useEffect(() => {
-    if (!map || !origin || !destination || !window.google) return
-    const directionsService = new window.google.maps.DirectionsService()
-    const directionsRenderer = new window.google.maps.DirectionsRenderer({
-      suppressMarkers: true,
-      polylineOptions: { strokeColor: '#6EC1E4', strokeWeight: 5, strokeOpacity: 0.85 }
+    if (!map || !origin || !destination) return
+
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY
+
+    fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'routes.polyline.encodedPolyline'
+      },
+      body: JSON.stringify({
+        origin: { location: { latLng: { latitude: origin.lat, longitude: origin.lng } } },
+        destination: { location: { latLng: { latitude: destination.lat, longitude: destination.lng } } },
+        travelMode: 'DRIVE'
+      })
     })
-    directionsRenderer.setMap(map)
-    polylineRef.current = directionsRenderer
-    directionsService.route(
-      { origin, destination, travelMode: window.google.maps.TravelMode.DRIVING },
-      (result, status) => {
-        if (status === 'OK') directionsRenderer.setDirections(result)
-        else toast.error('Could not load route')
-      }
-    )
-    return () => { directionsRenderer.setMap(null) }
-  }, [map, origin, destination])
+      .then(r => r.json())
+      .then(data => {
+        console.log('Routes API response:', JSON.stringify(data))
+        const encoded = data?.routes?.[0]?.polyline?.encodedPolyline
+        if (!encoded) { toast.error('No route found'); return }
+
+        const path = window.google.maps.geometry.encoding.decodePath(encoded)
+        const polyline = new window.google.maps.Polyline({
+          path,
+          strokeColor: '#6EC1E4',
+          strokeWeight: 5,
+          strokeOpacity: 0.85,
+          map
+        })
+        polylineRef.current = polyline
+      })
+      .catch(() => toast.error('Could not load route'))
+
+    return () => {
+      if (polylineRef.current) { polylineRef.current.setMap(null); polylineRef.current = null }
+    }
+  }, [map, origin?.lat, origin?.lng, destination?.lat, destination?.lng])
 
   return null
 }
