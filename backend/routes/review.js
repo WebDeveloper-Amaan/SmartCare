@@ -1,6 +1,5 @@
 /**
  * Review Routes
- * Handles babysitter reviews and ratings
  */
 const express = require('express');
 const router = express.Router();
@@ -9,73 +8,60 @@ const User = require('../models/User');
 const Booking = require('../models/Booking');
 const { protect } = require('../middleware/auth');
 
-// ============================================
-// @route   POST /api/reviews
-// @desc    Add a review
-// @access  Private
-// ============================================
+// @route  POST /api/reviews
+// @access Private
 router.post('/', protect, async (req, res) => {
-    try {
-        const { babysitterId, bookingId, rating, comment } = req.body;
+  try {
+    const { babysitterId, bookingId, rating, comment } = req.body;
 
-        // Check if booking exists and is completed
-        const booking = await Booking.findById(bookingId);
-        if (!booking || booking.status !== 'completed') {
-            return res.status(400).json({ error: 'Can only review completed bookings' });
-        }
-
-        // Check if already reviewed
-        const existingReview = await Review.findOne({ booking: bookingId, reviewer: req.user.id });
-        if (existingReview) {
-            return res.status(400).json({ error: 'You have already reviewed this booking' });
-        }
-
-        // Create review
-        const review = await Review.create({
-            babysitter: babysitterId,
-            reviewer: req.user.id,
-            booking: bookingId,
-            rating,
-            comment
-        });
-
-        // Update babysitter rating
-        await updateBabysitterRating(babysitterId);
-
-        res.status(201).json({ success: true, review });
-    } catch (error) {
-        console.error('Add review error:', error);
-        res.status(500).json({ error: 'Failed to add review' });
+    if (!babysitterId || !bookingId || !rating || !comment) {
+      return res.status(400).json({ error: 'babysitterId, bookingId, rating and comment are required' });
     }
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking || booking.status !== 'completed') {
+      return res.status(400).json({ error: 'Can only review completed bookings' });
+    }
+
+    const existing = await Review.findOne({ booking: bookingId, reviewer: req.user.id });
+    if (existing) {
+      return res.status(400).json({ error: 'You have already reviewed this booking' });
+    }
+
+    const reviewer = await User.findById(req.user.id).select('name role');
+    const reviewee = await User.findById(babysitterId).select('name');
+    if (!reviewee) return res.status(404).json({ error: 'Babysitter not found' });
+
+    const review = await Review.create({
+      reviewer: req.user.id,
+      reviewerName: reviewer.name,
+      reviewerRole: reviewer.role,
+      reviewee: babysitterId,
+      revieweeName: reviewee.name,
+      booking: bookingId,
+      rating,
+      text: comment,
+    });
+
+    res.status(201).json({ success: true, review });
+  } catch (error) {
+    console.error('Add review error:', error);
+    res.status(500).json({ error: 'Failed to add review' });
+  }
 });
 
-// ============================================
-// @route   GET /api/reviews/:userId
-// @desc    Get reviews for a user
-// @access  Public
-// ============================================
+// @route  GET /api/reviews/:userId
+// @access Public
 router.get('/:userId', async (req, res) => {
-    try {
-        const reviews = await Review.find({ babysitter: req.params.userId })
-            .populate('reviewer', 'name photo')
-            .sort({ createdAt: -1 });
+  try {
+    const reviews = await Review.find({ reviewee: req.params.userId, isPublic: true })
+      .populate('reviewer', 'name photo')
+      .sort({ createdAt: -1 });
 
-        res.json({ success: true, reviews });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch reviews' });
-    }
+    res.json({ success: true, reviews });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch reviews' });
+  }
 });
-
-// Helper function to update babysitter rating
-async function updateBabysitterRating(babysitterId) {
-    const reviews = await Review.find({ babysitter: babysitterId });
-    if (reviews.length > 0) {
-        const avgRating = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
-        await User.findByIdAndUpdate(babysitterId, {
-            rating: Math.round(avgRating * 10) / 10,
-            reviewCount: reviews.length
-        });
-    }
-}
 
 module.exports = router;

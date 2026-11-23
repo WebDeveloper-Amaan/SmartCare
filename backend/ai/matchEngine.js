@@ -1,38 +1,30 @@
 /**
- * SmartCare AI Matching Engine
- * backend/ai/matchEngine.js
- *
- * Scores babysitters against parent requirements across 8 dimensions.
- * Returns a score (0-100), per-dimension breakdown, and raw data
- * for Gemini to generate a personalised explanation.
+ * SmartCare AI Matching Engine v2
+ * 9-dimension weighted scorer (0-100) + strengths/gaps/reliability
  */
 
-// ─── Weight config (must sum to 100) ───────────────────────────────────────
 const WEIGHTS = {
-  budget:       20,   // hourly rate vs parent's max budget
-  rating:       20,   // sitter's rating & review count
-  experience:   15,   // years of experience
-  skills:       15,   // skill overlap with parent needs
-  ageGroup:     10,   // child age group match
-  availability: 10,   // day overlap
-  languages:     5,   // language match
-  verified:      5,   // KYC verified bonus
+  budget:       18,
+  rating:       18,
+  experience:   14,
+  skills:       15,
+  ageGroup:     10,
+  availability: 10,
+  languages:     5,
+  verified:      5,
+  specialNeeds:  5,
 }
 
-// ─── Individual dimension scorers (each returns 0-1) ───────────────────────
-
 function scoreBudget(sitter, prefs) {
-  if (!prefs.maxBudget) return 0.7 // neutral if not specified
+  if (!prefs.maxBudget) return 0.7
   const rate = sitter.hourlyRate || 0
   if (rate > prefs.maxBudget) return 0
-  // Closer to budget ceiling = better value signal
   return 0.5 + 0.5 * (rate / prefs.maxBudget)
 }
 
 function scoreRating(sitter) {
   const r = sitter.rating || 0
   const reviews = sitter.reviewCount || 0
-  // Confidence weight: more reviews = more reliable rating
   const confidence = Math.min(reviews / 10, 1)
   return (r / 5) * (0.6 + 0.4 * confidence)
 }
@@ -40,13 +32,12 @@ function scoreRating(sitter) {
 function scoreExperience(sitter, prefs) {
   const exp = sitter.experience || 0
   const minExp = prefs.minExperience || 0
-  if (exp < minExp) return Math.max(0, exp / minExp * 0.5)
-  return Math.min(exp / 8, 1) // 8+ years = full score
+  if (exp < minExp) return Math.max(0, exp / Math.max(minExp, 1) * 0.5)
+  return Math.min(exp / 8, 1)
 }
 
 function scoreSkills(sitter, prefs) {
-  const needed = prefs.requiredSkills?.length ? prefs.requiredSkills
-    : prefs.skills?.length ? prefs.skills : null
+  const needed = prefs.requiredSkills?.length ? prefs.requiredSkills : null
   if (!needed) return 0.6
   if (!sitter.skills?.length) return 0
   const matched = needed.filter(need =>
@@ -68,9 +59,7 @@ function scoreAgeGroup(sitter, prefs) {
 function scoreAvailability(sitter, prefs) {
   if (!prefs.requiredDays?.length) return 0.6
   if (!sitter.availability?.length) return 0.3
-  const matched = prefs.requiredDays.filter(d =>
-    sitter.availability.includes(d)
-  ).length
+  const matched = prefs.requiredDays.filter(d => sitter.availability.includes(d)).length
   return matched / prefs.requiredDays.length
 }
 
@@ -87,7 +76,14 @@ function scoreVerified(sitter) {
   return sitter.verified ? 1 : 0
 }
 
-// ─── Main scorer ────────────────────────────────────────────────────────────
+function scoreSpecialNeeds(sitter, prefs) {
+  if (!prefs.specialNeeds) return 0.7 // not needed — neutral
+  // If parent needs special needs care, check skills
+  const hasSkill = sitter.skills?.some(s =>
+    s.toLowerCase().includes('special') || s.toLowerCase().includes('disability')
+  )
+  return hasSkill ? 1 : 0.2
+}
 
 function scoreSitter(sitter, parentPrefs) {
   const dimensions = {
@@ -99,16 +95,15 @@ function scoreSitter(sitter, parentPrefs) {
     availability: scoreAvailability(sitter, parentPrefs),
     languages:    scoreLanguages(sitter, parentPrefs),
     verified:     scoreVerified(sitter),
+    specialNeeds: scoreSpecialNeeds(sitter, parentPrefs),
   }
 
-  // Weighted total
   let total = 0
   for (const [key, raw] of Object.entries(dimensions)) {
     total += raw * WEIGHTS[key]
   }
   const finalScore = Math.round(Math.min(total, 100))
 
-  // Human-readable breakdown (percentage per dimension)
   const breakdown = {}
   for (const [key, raw] of Object.entries(dimensions)) {
     breakdown[key] = {
@@ -118,19 +113,12 @@ function scoreSitter(sitter, parentPrefs) {
     }
   }
 
-  // Reliability score = rating + verified + experience combined
   const reliability = Math.round(
     (dimensions.rating * 0.5 + dimensions.verified * 0.3 + dimensions.experience * 0.2) * 100
   )
 
-  // Strengths & gaps for Gemini prompt
-  const strengths = Object.entries(dimensions)
-    .filter(([, v]) => v >= 0.8)
-    .map(([k]) => k)
-
-  const gaps = Object.entries(dimensions)
-    .filter(([, v]) => v < 0.4)
-    .map(([k]) => k)
+  const strengths = Object.entries(dimensions).filter(([, v]) => v >= 0.8).map(([k]) => k)
+  const gaps = Object.entries(dimensions).filter(([, v]) => v < 0.4).map(([k]) => k)
 
   return { finalScore, breakdown, reliability, strengths, gaps }
 }

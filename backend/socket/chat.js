@@ -7,7 +7,33 @@
 
 const Message = require('../models/Message')
 const User = require('../models/User')
+const Booking = require('../models/Booking')
 const jwt = require('jsonwebtoken')
+const sendEmail = require('../utils/sendEmail')
+
+// Send in-app message + optional email notification
+async function sendSessionNotification(io, { fromId, fromName, toId, text, emailSubject, emailHtml }) {
+  try {
+    const receiver = await User.findById(toId).select('name email')
+    if (!receiver) return
+    const conversationId = [fromId, toId].sort().join('_')
+    const saved = await Message.create({
+      sender: fromId, senderName: fromName,
+      receiver: toId, receiverName: receiver.name,
+      conversationId, text, messageType: 'text'
+    })
+    io.to(toId).emit('receive_message', {
+      _id: saved._id, from: fromId, to: toId,
+      text: saved.text, senderName: fromName, createdAt: saved.createdAt
+    })
+    // Email — best effort, never throws
+    if (emailSubject && emailHtml && receiver.email) {
+      sendEmail({ to: receiver.email, subject: emailSubject, html: emailHtml }).catch(() => {})
+    }
+  } catch (e) {
+    console.error('sendSessionNotification error:', e.message)
+  }
+}
 
 // Returns a geo-room name for a lat/lng
 // Rounds to 1 decimal degree (~11km grid cell) so nearby users share a room
@@ -105,6 +131,93 @@ module.exports = (io) => {
     // ── Typing indicators ──────────────────────────────────────────
     socket.on('typing', ({ to }) => io.to(to).emit('typing', { from: userId }))
     socket.on('stop_typing', ({ to }) => io.to(to).emit('stop_typing', { from: userId }))
+
+    // ── Session GPS tracking (babysitter → parent only) ────────────
+    // Babysitter emits this during an active booking session
+    socket.on('session:location', ({ bookingId, parentId, lat, lng, accuracy }) => {
+      if (typeof lat !== 'number' || typeof lng !== 'number') return
+      // Only forward to the specific parent — not broadcast to all nearby
+      io.to(parentId).emit('session:location', {
+        bookingId, sitterId: userId, sitterName: socket.user.name, lat, lng, accuracy,
+        timestamp: Date.now()
+      })
+    })
+
+    // Babysitter arrived at parent's home — session GPS starts
+    socket.on('session:start', async ({ bookingId, parentId, lat, lng }) => {
+      console.log(`📍 Session GPS started: ${socket.user.name} → booking ${bookingId}`)
+      const sitterName = socket.user.name
+      io.to(parentId).emit('session:started', {
+        bookingId, sitterId: userId, sitterName, lat, lng, timestamp: Date.now()
+      })
+      const text = `📍 ${sitterName} has arrived and started the session! Live GPS tracking is now active.`
+      await sendSessionNotification(io, {
+        fromId: userId, fromName: sitterName, toId: parentId, text,
+        emailSubject: `📍 ${sitterName} has arrived for your booking`,
+        emailHtml: `<p>Hi,</p><p><strong>${sitterName}</strong> has arrived at your home and started the babysitting session.</p><p>Live GPS tracking is now active in your SmartCare dashboard.</p><p>— SmartCare</p>`
+      })
+    })
+
+    // Session ended — stop GPS, notify parent
+    socket.on('session:end', async ({ bookingId, parentId }) => {
+      console.log(`🏁 Session GPS ended: ${socket.user.name} → booking ${bookingId}`)
+      const sitterName = socket.user.name
+      io.to(parentId).emit('session:ended', {
+        bookingId, sitterId: userId, timestamp: Date.now()
+      })
+      const text = `🏁 ${sitterName} has ended the session and stopped GPS tracking. Your child is safe!`
+      await sendSessionNotification(io, {
+        fromId: userId, fromName: sitterName, toId: parentId, text,
+        emailSubject: `🏁 Session ended by ${sitterName}`,
+        emailHtml: `<p>Hi,</p><p><strong>${sitterName}</strong> has ended the babysitting session and stopped GPS tracking.</p><p>We hope everything went well! You can leave a review from your SmartCare dashboard.</p><p>— SmartCare</p>`
+      })
+    })
+
+    // SOS panic button — highest priority alert
+    socket.on('session:sos', async ({ bookingId, parentId, lat, lng, message }) => {
+      console.log(`🚨 SOS from ${socket.user.name} on booking ${bookingId}`)
+      const sitterName = socket.user.name
+      const sosMsg = message || 'Emergency! Please call immediately.'
+      io.to(parentId).emit('session:sos', {
+        bookingId, sitterId: userId, sitterName, lat, lng,
+        message: sosMsg, timestamp: Date.now()
+      })
+      const text = `🚨 SOS ALERT from ${sitterName}: "${sosMsg}" — Please call them immediately!`
+      await sendSessionNotification(io, {
+        fromId: userId, fromName: sitterName, toId: parentId, text,
+        emailSubject: `🚨 URGENT: SOS Alert from ${sitterName}`,
+        emailHtml: `<p style="color:red"><strong>🚨 EMERGENCY ALERT</strong></p><p><strong>${sitterName}</strong> has triggered an SOS alert during your booking.</p><p><strong>Message:</strong> ${sosMsg}</p><p>Please call ${sitterName} immediately and check on your child.</p><p>— SmartCare</p>`
+      })
+    })
+
+    // ── WebRTC video stream signaling ───────────────────────────
+    // Both sides join the room on mount — no peer creation yet
+    socket.on('stream:join', ({ roomId }) => {
+      socket.join(roomId)
+    })
+
+    // Parent is ready to receive — re-join room defensively, relay to babysitter
+    socket.on('stream:watch_ready', ({ roomId }) => {
+      socket.join(roomId)
+      socket.to(roomId).emit('stream:watch_ready')
+    })
+
+    // Relay WebRTC offer/answer/ICE signals between peers
+    socket.on('stream:signal', ({ roomId, signal }) => {
+      socket.to(roomId).emit('stream:signal', { signal })
+    })
+
+    // Babysitter ended stream — notify parent, but stay in room for re-streams
+    socket.on('stream:end', ({ roomId }) => {
+      socket.to(roomId).emit('stream:ended')
+      // Do NOT leave the room — babysitter must stay to receive watch_ready on re-stream
+    })
+
+    // Re-join room on stream:ready in case socket lost room membership
+    socket.on('stream:ready', ({ roomId }) => {
+      socket.join(roomId)
+      socket.to(roomId).emit('stream:ready')
+    })
 
     // ── Live location (geo-room scoped) ────────────────────────────
     socket.on('location_update', ({ lat, lng }) => {

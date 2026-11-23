@@ -5,6 +5,9 @@ import { Map, AdvancedMarker, useMap } from '@vis.gl/react-google-maps'
 import api from '../services/api'
 import toast from 'react-hot-toast'
 import PhotoUpload, { InitialsAvatar } from '../components/PhotoUpload'
+import SessionTracker from '../components/SessionTracker'
+import LiveStream, { stopSitterStream } from '../components/LiveStream'
+import { useSession } from '../context/SessionContext'
 
 const STATUS = {
   pending: { cls: 'bg-yellow-100 text-yellow-700', label: 'Pending' },
@@ -18,6 +21,8 @@ const SECTIONS = [
   { key: 'overview', icon: 'fa-home', label: 'Overview' },
   { key: 'requests', icon: 'fa-inbox', label: 'Job Requests' },
   { key: 'schedule', icon: 'fa-calendar-alt', label: 'My Schedule' },
+  { key: 'iot', icon: 'fa-satellite-dish', label: 'Live Session GPS' },
+  { key: 'stream', icon: 'fa-video', label: 'Live Camera' },
   { key: 'earnings', icon: 'fa-wallet', label: 'Earnings' },
   { key: 'profile', icon: 'fa-user', label: 'My Profile' },
   { key: 'kyc', icon: 'fa-id-card', label: 'KYC Verification' },
@@ -25,6 +30,7 @@ const SECTIONS = [
 
 export default function BabysitterDashboard() {
   const { user, logout } = useAuth()
+  const sessionCtx = useSession()
   const navigate = useNavigate()
   const [section, setSection] = useState('overview')
   const [bookings, setBookings] = useState([])
@@ -81,6 +87,11 @@ export default function BabysitterDashboard() {
     setSavingLocation(true)
     try {
       await api.put('/babysitters/location', { lat: locationCoords.lat, lng: locationCoords.lng })
+      // Refresh user in AuthContext so coordinates update immediately
+      const { data } = await api.get('/auth/me')
+      if (data.user) {
+        localStorage.setItem('user', JSON.stringify(data.user))
+      }
       toast.success('Location saved! You will appear on the map after KYC verification.')
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to save location')
@@ -94,13 +105,22 @@ export default function BabysitterDashboard() {
   const completed = bookings.filter(b => b.status === 'completed')
   const totalEarned = bookings.filter(b => b.paymentStatus === 'paid').reduce((s, b) => s + b.totalAmount, 0)
 
-  const updateStatus = async (id, status) => {
+  const updateStatus = async (id, status, reason) => {
     if (!id || !/^[a-f\d]{24}$/i.test(id)) { toast.error('Invalid booking'); return }
     try {
-      await api.put(`/bookings/${id}/status`, { status })
-      setBookings(prev => prev.map(b => b._id === id ? { ...b, status } : b))
-      toast.success(status === 'confirmed' ? 'Job accepted!' : 'Job declined')
-    } catch { toast.error('Failed to update') }
+      await api.put(`/bookings/${id}/status`, { status, cancellationReason: reason })
+      const updatedBookings = bookings.map(b => b._id === id ? { ...b, status } : b)
+      setBookings(updatedBookings)
+      if (status === 'completed' || status === 'cancelled') {
+        const booking = bookings.find(b => b._id === id)
+        if (booking) {
+          sessionCtx?.setActiveBooking({ ...booking, status })
+          stopSitterStream(`stream_${id}`)
+        }
+      }
+      const msgs = { confirmed: 'Job accepted!', cancelled: 'Job declined', 'in-progress': 'Session started!', completed: 'Session completed!' }
+      toast.success(msgs[status] || 'Updated')
+    } catch (err) { toast.error(err.response?.data?.error || 'Failed to update') }
   }
 
   const saveProfile = async e => {
@@ -155,6 +175,18 @@ export default function BabysitterDashboard() {
           )}
         </div>
       </div>
+      {b.status === 'confirmed' && (
+        <button onClick={() => updateStatus(b._id, 'in-progress')}
+          className="mt-3 w-full gradient-bg text-white py-2 rounded-xl font-semibold hover:opacity-90 transition flex items-center justify-center gap-2 text-sm">
+          <i className="fas fa-play-circle"></i> Start Session
+        </button>
+      )}
+      {b.status === 'in-progress' && (
+        <button onClick={() => { if (window.confirm('Mark this session as completed?')) updateStatus(b._id, 'completed') }}
+          className="mt-3 w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-xl font-semibold transition flex items-center justify-center gap-2 text-sm">
+          <i className="fas fa-flag-checkered"></i> Complete Session
+        </button>
+      )}
     </div>
   )
 
@@ -368,7 +400,112 @@ export default function BabysitterDashboard() {
                   <i className="fas fa-calendar text-5xl text-gray-300 mb-4 block"></i>
                   <p>No scheduled jobs yet</p>
                 </div>
-              ) : [...confirmed, ...completed].map(b => <JobCard key={b._id} b={b} />)}
+              ) : [...confirmed, ...completed].map(b => (
+                <div key={b._id} className="border rounded-xl p-4 mb-4">
+                  <div className="flex justify-between items-start flex-wrap gap-2 mb-3">
+                    <div>
+                      <h4 className="font-semibold text-gray-900">{b.parentName}</h4>
+                      <p className="text-sm text-gray-500">
+                        <i className="fas fa-calendar mr-1"></i>{new Date(b.date).toLocaleDateString('en-IN')}
+                        <i className="fas fa-clock ml-3 mr-1"></i>{b.startTime} – {b.endTime}
+                      </p>
+                      {b.address && <p className="text-sm text-gray-500 mt-1"><i className="fas fa-map-marker-alt mr-1"></i>{b.address}</p>}
+                    </div>
+                    <div className="text-right">
+                      <span className={`px-3 py-1 rounded-full text-sm ${STATUS[b.status]?.cls || 'bg-gray-100 text-gray-600'}`}>{STATUS[b.status]?.label || b.status}</span>
+                      <p className="text-lg font-bold text-[#6EC1E4] mt-2">₹{b.totalAmount}</p>
+                      {b.parent?._id && (
+                        <Link to={`/chat/${b.parent._id}`} className="inline-flex items-center gap-1 mt-2 text-sm text-[#6EC1E4] font-medium hover:underline">
+                          <i className="fas fa-comment-dots"></i> Message Parent
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                  {/* Session action buttons */}
+                  {b.status === 'confirmed' && (
+                    <button
+                      onClick={() => updateStatus(b._id, 'in-progress')}
+                      className="w-full gradient-bg text-white py-2.5 rounded-xl font-semibold hover:opacity-90 transition flex items-center justify-center gap-2">
+                      <i className="fas fa-play-circle"></i> Start Session
+                    </button>
+                  )}
+                  {b.status === 'in-progress' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
+                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                        <span className="text-green-700 text-sm font-semibold">Session in progress</span>
+                        {b.checkInTime && (
+                          <span className="ml-auto text-xs text-green-600">
+                            Started {new Date(b.checkInTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (window.confirm('Mark this session as completed?')) {
+                            updateStatus(b._id, 'completed')
+                          }
+                        }}
+                        className="w-full bg-green-500 hover:bg-green-600 text-white py-2.5 rounded-xl font-semibold transition flex items-center justify-center gap-2">
+                        <i className="fas fa-flag-checkered"></i> Complete Session
+                      </button>
+                    </div>
+                  )}
+                  {b.status === 'completed' && (
+                    <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5">
+                      <i className="fas fa-check-circle text-gray-400"></i>
+                      <span className="text-gray-500 text-sm">Session completed</span>
+                      {b.checkOutTime && (
+                        <span className="ml-auto text-xs text-gray-400">
+                          {b.actualDuration ? `${b.actualDuration.toFixed(1)}h actual` : ''}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Live Camera Stream */}
+          {section === 'stream' && (
+            <div className="max-w-2xl space-y-4">
+              <div className="bg-white rounded-2xl shadow-lg p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
+                    <i className="fas fa-video text-red-500" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">Live Camera Stream</h2>
+                    <p className="text-gray-400 text-sm">Stream your camera to the parent during a session</p>
+                  </div>
+                </div>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3 text-sm text-yellow-700">
+                  <i className="fas fa-exclamation-triangle mr-2" />
+                  Only stream during active bookings. The parent will see your camera feed in real time.
+                </div>
+              </div>
+              {confirmed.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+                  <i className="fas fa-video-slash text-gray-300 text-4xl mb-3 block" />
+                  <p className="font-semibold text-gray-600">No active sessions</p>
+                  <p className="text-gray-400 text-sm mt-1">Stream option appears here for confirmed bookings</p>
+                </div>
+              ) : confirmed.map(b => (
+                <div key={b._id} className="bg-white rounded-2xl shadow-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className="font-bold text-gray-900">{b.parentName}</p>
+                      <p className="text-sm text-gray-500">
+                        <i className="fas fa-calendar mr-1" />{new Date(b.date).toLocaleDateString('en-IN')}
+                        <i className="fas fa-clock ml-3 mr-1" />{b.startTime} – {b.endTime}
+                      </p>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${STATUS[b.status]?.cls}`}>{STATUS[b.status]?.label}</span>
+                  </div>
+                  <LiveStream bookingId={b._id} parentId={b.parent?._id} role="babysitter" />
+                </div>
+              ))}
             </div>
           )}
 
@@ -577,6 +714,68 @@ export default function BabysitterDashboard() {
                   </button>
                 </form>
               </div>
+            </div>
+          )}
+
+          {/* Live Session GPS */}
+          {section === 'iot' && (
+            <div className="max-w-2xl space-y-6">
+              <div className="bg-white rounded-2xl shadow-lg p-6">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)' }}>
+                    <i className="fas fa-satellite-dish text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">Live Session GPS</h2>
+                    <p className="text-gray-400 text-sm">IoT-powered safety tracking for active sessions</p>
+                  </div>
+                </div>
+
+                {/* How it works */}
+                <div className="grid grid-cols-3 gap-3 my-5">
+                  {[
+                    { icon: 'fa-map-marker-alt', color: '#6EC1E4', title: 'Auto-Arrives', desc: 'GPS starts when you reach parent\'s home (within 200m)' },
+                    { icon: 'fa-shield-alt', color: '#22c55e', title: 'Private', desc: 'Location only shared during active session window' },
+                    { icon: 'fa-exclamation-triangle', color: '#ef4444', title: 'SOS Button', desc: 'One tap sends emergency alert + location to parent' },
+                  ].map(f => (
+                    <div key={f.title} className="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center mx-auto mb-2" style={{ background: f.color + '20' }}>
+                        <i className={`fas ${f.icon} text-sm`} style={{ color: f.color }} />
+                      </div>
+                      <p className="text-xs font-bold text-gray-800">{f.title}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{f.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Active / confirmed bookings with tracker */}
+              {confirmed.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+                  <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-satellite-dish text-gray-300 text-2xl" />
+                  </div>
+                  <p className="font-semibold text-gray-600">No active sessions</p>
+                  <p className="text-gray-400 text-sm mt-1">GPS tracker appears here when you have a confirmed booking</p>
+                </div>
+              ) : confirmed.map(b => (
+                <div key={b._id} className="space-y-3">
+                  <div className="bg-white rounded-2xl shadow-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="font-bold text-gray-900">{b.parentName}</p>
+                        <p className="text-sm text-gray-500">
+                          <i className="fas fa-calendar mr-1" />{new Date(b.date).toLocaleDateString('en-IN')}
+                          <i className="fas fa-clock ml-3 mr-1" />{b.startTime} – {b.endTime}
+                        </p>
+                        {b.address && <p className="text-xs text-gray-400 mt-0.5"><i className="fas fa-map-marker-alt mr-1 text-[#6EC1E4]" />{b.address}</p>}
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${STATUS[b.status]?.cls}`}>{STATUS[b.status]?.label}</span>
+                    </div>
+                    <SessionTracker booking={b} />
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 

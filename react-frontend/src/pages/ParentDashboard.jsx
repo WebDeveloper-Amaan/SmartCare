@@ -4,6 +4,8 @@ import { useAuth } from '../context/useAuth'
 import api from '../services/api'
 import toast from 'react-hot-toast'
 import PhotoUpload from '../components/PhotoUpload'
+import LiveStream from '../components/LiveStream'
+import ParentSessionView from '../components/ParentSessionView'
 
 const STATUS = {
   pending: { cls: 'bg-yellow-100 text-yellow-700', label: 'Pending' },
@@ -16,6 +18,8 @@ const STATUS = {
 const SECTIONS = [
   { key: 'overview', icon: 'fa-home', label: 'Overview' },
   { key: 'bookings', icon: 'fa-calendar-alt', label: 'My Bookings' },
+  { key: 'session', icon: 'fa-satellite-dish', label: 'Live Session GPS' },
+  { key: 'stream', icon: 'fa-video', label: 'Live Camera' },
   { key: 'payments', icon: 'fa-credit-card', label: 'Payments' },
   { key: 'profile', icon: 'fa-user', label: 'My Profile' },
 ]
@@ -44,6 +48,7 @@ export default function ParentDashboard() {
       .finally(() => setLoading(false))
   }, [])
 
+  const activeSessions = bookings.filter(b => ['confirmed', 'in-progress'].includes(b.status))
   const filtered = filter === 'all' ? bookings : bookings.filter(b => b.status === filter)
 
   const cancelBooking = async id => {
@@ -208,10 +213,10 @@ export default function ParentDashboard() {
                       <h3 className="text-xl font-bold mb-2">Find a Babysitter</h3>
                       <p className="text-white/80">Search verified babysitters near you</p>
                     </Link>
-                    <div onClick={() => setSection('bookings')} className="bg-white rounded-2xl p-6 shadow-lg cursor-pointer hover:shadow-xl transition">
-                      <i className="fas fa-calendar-alt text-3xl text-[#6EC1E4] mb-4 block"></i>
-                      <h3 className="text-xl font-bold text-gray-900 mb-2">View Bookings</h3>
-                      <p className="text-gray-500">Check your upcoming sessions</p>
+                    <div onClick={() => setSection('session')} className="bg-white rounded-2xl p-6 shadow-lg cursor-pointer hover:shadow-xl transition">
+                      <i className="fas fa-satellite-dish text-3xl text-[#6EC1E4] mb-4 block"></i>
+                      <h3 className="text-xl font-bold text-gray-900 mb-2">Live Session GPS</h3>
+                      <p className="text-gray-500">{activeSessions.length > 0 ? `${activeSessions.length} active session(s)` : 'Track sitter in real time'}</p>
                     </div>
                     <div onClick={() => setSection('profile')} className="bg-white rounded-2xl p-6 shadow-lg cursor-pointer hover:shadow-xl transition">
                       <i className="fas fa-user-edit text-3xl text-[#6EC1E4] mb-4 block"></i>
@@ -236,6 +241,102 @@ export default function ParentDashboard() {
                 </>
               )}
             </>
+          )}
+
+          {/* Live Camera Stream */}
+          {section === 'stream' && (
+            <div className="max-w-2xl space-y-4">
+              <div className="bg-white rounded-2xl shadow-lg p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
+                    <i className="fas fa-video text-red-500" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">Live Camera Feed</h2>
+                    <p className="text-gray-400 text-sm">Watch babysitter's live camera stream</p>
+                  </div>
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-700 mb-4">
+                  <i className="fas fa-info-circle mr-2" />
+                  The babysitter must start the stream from their dashboard first. It will appear here automatically.
+                </div>
+              </div>
+              {activeSessions.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+                  <i className="fas fa-video-slash text-gray-300 text-4xl mb-3 block" />
+                  <p className="font-semibold text-gray-600">No active sessions</p>
+                  <p className="text-gray-400 text-sm mt-1">Live stream appears here during confirmed bookings</p>
+                </div>
+              ) : activeSessions.map(b => (
+                <div key={b._id} className="space-y-3">
+                  <div className="bg-white rounded-2xl shadow-lg p-4">
+                    <p className="font-bold text-gray-900 mb-1">{b.babysitterName}</p>
+                    <p className="text-sm text-gray-500 mb-3">
+                      <i className="fas fa-calendar mr-1" />{new Date(b.date).toLocaleDateString('en-IN')}
+                      <i className="fas fa-clock ml-3 mr-1" />{b.startTime} – {b.endTime}
+                    </p>
+                    <LiveStream bookingId={b._id} parentId={user?._id || user?.id} role="parent" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Live Session GPS */}
+          {section === 'session' && (
+            <div className="max-w-2xl space-y-6">
+              <div className="bg-white rounded-2xl shadow-lg p-6">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #22c55e, #16a34a)' }}>
+                    <i className="fas fa-satellite-dish text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">Live Session GPS</h2>
+                    <p className="text-gray-400 text-sm">Real-time babysitter location during active sessions</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3 mt-5">
+                  {[
+                    { icon: 'fa-map-marker-alt', color: '#6EC1E4', title: 'Auto-Starts', desc: 'Map activates when sitter arrives at your home' },
+                    { icon: 'fa-shield-alt', color: '#22c55e', title: 'Private', desc: 'Location only visible during active session' },
+                    { icon: 'fa-exclamation-triangle', color: '#ef4444', title: 'SOS Alerts', desc: 'Instant emergency notification from sitter' },
+                  ].map(f => (
+                    <div key={f.title} className="bg-gray-50 rounded-xl p-3 text-center border border-gray-100">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center mx-auto mb-2" style={{ background: f.color + '20' }}>
+                        <i className={`fas ${f.icon} text-sm`} style={{ color: f.color }} />
+                      </div>
+                      <p className="text-xs font-bold text-gray-800">{f.title}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{f.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {activeSessions.length === 0 ? (
+                <div className="bg-white rounded-2xl shadow-lg p-10 text-center">
+                  <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <i className="fas fa-satellite-dish text-gray-300 text-2xl" />
+                  </div>
+                  <p className="font-semibold text-gray-600">No active sessions</p>
+                  <p className="text-gray-400 text-sm mt-1">GPS view appears here when you have a confirmed booking</p>
+                  <button onClick={() => setSection('bookings')} className="mt-4 text-[#6EC1E4] font-medium hover:underline text-sm">View all bookings</button>
+                </div>
+              ) : activeSessions.map(b => (
+                <div key={b._id} className="bg-white rounded-2xl shadow-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-bold text-gray-900">{b.babysitterName}</p>
+                      <p className="text-sm text-gray-500">
+                        <i className="fas fa-calendar mr-1" />{new Date(b.date).toLocaleDateString('en-IN')}
+                        <i className="fas fa-clock ml-3 mr-1" />{b.startTime} – {b.endTime}
+                      </p>
+                    </div>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${STATUS[b.status]?.cls}`}>{STATUS[b.status]?.label}</span>
+                  </div>
+                  <ParentSessionView booking={b} />
+                </div>
+              ))}
+            </div>
           )}
 
           {/* Bookings */}

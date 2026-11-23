@@ -83,6 +83,7 @@ export default function Testimonials() {
           className="flex py-4"
           style={{
             animation: paused ? 'none' : 'marquee 35s linear infinite',
+            animationPlayState: paused ? 'paused' : 'running',
             width: 'max-content',
           }}
         >

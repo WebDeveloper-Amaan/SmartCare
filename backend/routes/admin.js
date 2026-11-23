@@ -336,7 +336,7 @@ router.put('/reviews/:id/moderate', async (req, res) => {
         } else if (action === 'hide') {
             review.isPublic = false;
         } else if (action === 'delete') {
-            await review.remove();
+            await Review.findByIdAndDelete(review._id);
             return res.json({ success: true, message: 'Review deleted' });
         }
         review.moderatedBy = req.user.id;
@@ -362,11 +362,11 @@ router.get('/analytics', async (req, res) => {
         let dateFilter = {};
         const now = new Date();
         if (period === 'week') {
-            dateFilter = { $gte: new Date(now.setDate(now.getDate() - 7)) };
+            dateFilter = { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
         } else if (period === 'month') {
-            dateFilter = { $gte: new Date(now.setMonth(now.getMonth() - 1)) };
+            dateFilter = { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) };
         } else if (period === 'year') {
-            dateFilter = { $gte: new Date(now.setFullYear(now.getFullYear() - 1)) };
+            dateFilter = { $gte: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000) };
         }
         // Bookings over time
         const bookingsOverTime = await Booking.aggregate([

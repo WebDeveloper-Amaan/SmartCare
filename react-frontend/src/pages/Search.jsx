@@ -61,11 +61,15 @@ export default function Search() {
   const fetchBabysitters = async (p = 1) => {
     setLoading(true)
     try {
-      const params = { page: p, limit: 9, ...filters }
+      const params = { page: p, limit: 9, sortBy: filters.sortBy }
+      // Only send non-empty filters
+      if (filters.location && filters.location !== 'all') params.location = filters.location
+      if (filters.maxRate) params.maxRate = filters.maxRate
+      if (filters.minRating) params.minRating = filters.minRating
       if (filters.verifiedOnly) params.verifiedOnly = 'true'
       const { data } = await api.get('/babysitters', { params })
-      setBabysitters(data.babysitters)
-      setTotalPages(data.pages)
+      setBabysitters(Array.isArray(data.babysitters) ? data.babysitters : [])
+      setTotalPages(data.pages || 1)
       setPage(p)
     } catch {
       toast.error('Failed to load babysitters')
@@ -85,12 +89,22 @@ export default function Search() {
     const stored = localStorage.getItem('smartmatch_results')
     if (stored) {
       try {
-        const sitters = JSON.parse(stored)
-        setBabysitters(sitters)
-        setAiMode(true)
-        setTotalPages(1)
-        setPage(1)
-      } catch { fetchBabysitters() }
+        const parsed = JSON.parse(stored)
+        // Handle both array and { babysitters: [] } shapes
+        const sitters = Array.isArray(parsed) ? parsed : (parsed?.babysitters || [])
+        if (sitters.length > 0) {
+          setBabysitters(sitters)
+          setAiMode(true)
+          setTotalPages(1)
+          setPage(1)
+        } else {
+          localStorage.removeItem('smartmatch_results')
+          fetchBabysitters()
+        }
+      } catch {
+        localStorage.removeItem('smartmatch_results')
+        fetchBabysitters()
+      }
     } else {
       fetchBabysitters()
     }
@@ -99,7 +113,9 @@ export default function Search() {
   const handleSearch = e => { e.preventDefault(); clearAI(); setFiltersOpen(false) }
 
   const handleNearbySearch = (nearbySitters) => {
+    if (!nearbySitters?.length) return
     setBabysitters(nearbySitters)
+    setAiMode(false)
     setTotalPages(1)
     setPage(1)
   }

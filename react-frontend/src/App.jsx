@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider } from './context/AuthContext'
 import { useAuth } from './context/useAuth'
+import { SessionProvider } from './context/SessionContext'
+import { ParentSessionProvider } from './context/ParentSessionContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import AIChatbot from './components/AIChatbot'
 
@@ -29,36 +31,40 @@ function RedirectDashboard() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
-        <AIChatbot />
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/search" element={<Search />} />
-          <Route path="/smart-match" element={<SmartMatch />} />
-          <Route path="/profile/:id" element={<Profile />} />
-          <Route path="/dashboard" element={<RedirectDashboard />} />
-          <Route path="/parent-dashboard" element={
-            <ProtectedRoute role="parent"><ParentDashboard /></ProtectedRoute>
-          } />
-          <Route path="/babysitter-dashboard" element={
-            <ProtectedRoute role="babysitter"><BabysitterDashboard /></ProtectedRoute>
-          } />
-          <Route path="/admin" element={
-            <ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>
-          } />
-          <Route path="/chat" element={
-            <ProtectedRoute><ChatInbox /></ProtectedRoute>
-          } />
-          <Route path="/chat/:userId" element={
-            <ProtectedRoute><Chat /></ProtectedRoute>
-          } />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
+      <SessionProvider>
+        <ParentSessionProvider>
+          <BrowserRouter>
+            <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+            <AIChatbot />
+            <Routes>
+              <Route path="/" element={<Landing />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/signup" element={<Signup />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/search" element={<Search />} />
+              <Route path="/smart-match" element={<SmartMatch />} />
+              <Route path="/profile/:id" element={<Profile />} />
+              <Route path="/dashboard" element={<RedirectDashboard />} />
+              <Route path="/parent-dashboard" element={
+                <ProtectedRoute role="parent"><ParentDashboard /></ProtectedRoute>
+              } />
+              <Route path="/babysitter-dashboard" element={
+                <ProtectedRoute role="babysitter"><BabysitterDashboard /></ProtectedRoute>
+              } />
+              <Route path="/admin" element={
+                <ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>
+              } />
+              <Route path="/chat" element={
+                <ProtectedRoute><ChatInbox /></ProtectedRoute>
+              } />
+              <Route path="/chat/:userId" element={
+                <ProtectedRoute><Chat /></ProtectedRoute>
+              } />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </ParentSessionProvider>
+      </SessionProvider>
     </AuthProvider>
   )
 }

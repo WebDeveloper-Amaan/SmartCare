@@ -14,7 +14,7 @@ function getGemini() {
   if (!geminiModel) {
     const { GoogleGenerativeAI } = require('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-    geminiModel = genAI.getGenerativeModel({ model: 'gemini-3.6-flash' })
+    geminiModel = genAI.getGenerativeModel({ model: 'gemini-3.8-flash' })
   }
   return geminiModel
 }
@@ -133,7 +133,7 @@ router.post('/chat', async (req, res) => {
     const { messages } = req.body
     if (!messages?.length) return res.status(400).json({ error: 'messages required' })
 
-    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.startsWith('AQ.') || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
+    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
       return res.json({ reply: getFallbackReply(messages[messages.length - 1]?.content || '') })
     }
 

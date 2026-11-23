@@ -66,10 +66,13 @@ app.use(helmet());
 app.use(helmet.contentSecurityPolicy({
   directives: {
     defaultSrc: ["'self'"],
-    scriptSrc: ["'self'"],
-    styleSrc: ["'self'", "'unsafe-inline'"],
-    imgSrc: ["'self'", 'data:', 'https:'],
-    connectSrc: ["'self'", ...allowedOrigins]
+    scriptSrc: ["'self'", "'unsafe-inline'", 'https://maps.googleapis.com', 'https://maps.gstatic.com'],
+    styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+    fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+    imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
+    connectSrc: ["'self'", ...allowedOrigins, 'https://routes.googleapis.com', 'https://maps.googleapis.com', 'stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'],
+    workerSrc: ["'self'", 'blob:'],
+    frameSrc: ["'none'"]
   }
 }));
 
@@ -132,7 +135,11 @@ app.use('/api/auth/send-otp', authLimiter);
 // ============================================
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI);
+    const conn = await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+      heartbeatFrequencyMS: 10000,
+    });
     logger.info(`✅ MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {
     logger.error('MongoDB connection failed', error);
@@ -157,6 +164,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/smartmatch', smartMatchRoutes);
 
+app.set('io', io);
 setupSocketHandlers(io);
 
 // ============================================

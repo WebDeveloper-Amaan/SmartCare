@@ -126,7 +126,7 @@ reviewSchema.post('save', function() {
     this.constructor.calculateAverageRating(this.reviewee);
 });
 // Update user rating after remove
-reviewSchema.post('remove', function() {
-    this.constructor.calculateAverageRating(this.reviewee);
+reviewSchema.post('findOneAndDelete', function(doc) {
+    if (doc) doc.constructor.calculateAverageRating(doc.reviewee);
 });
 module.exports = mongoose.model('Review', reviewSchema);

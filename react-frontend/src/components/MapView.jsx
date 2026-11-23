@@ -114,6 +114,9 @@ export default function MapView({ babysitters, onNearbySearch, fullHeight = fals
   const [locationDenied, setLocationDenied] = useState(false)
   const [allSitters, setAllSitters] = useState(babysitters)
   const [showRoute, setShowRoute] = useState(false)
+
+  // Sync allSitters when parent prop changes (e.g. filter/search applied)
+  useEffect(() => { setAllSitters(babysitters) }, [babysitters])
   const [isLive, setIsLive] = useState(false)
   const [mapError, setMapError] = useState(false)
   const socketRef = useRef(null)
@@ -178,24 +181,25 @@ export default function MapView({ babysitters, onNearbySearch, fullHeight = fals
           const { data } = await api.get('/babysitters/nearby', {
             params: { lat: coords.latitude, lng: coords.longitude, maxDistance: NEARBY_RADIUS }
           })
-          // Merge: nearby first, then rest (deduplicated)
-          const nearbyIds = new Set((data.babysitters || []).map(s => s._id))
-          const others = babysitters.filter(s => !nearbyIds.has(s._id))
-          const merged = [...(data.babysitters || []), ...others]
-          setAllSitters(merged)
-          onNearbySearch(merged, loc)
+          const nearby = data.babysitters || []
+          const nearbyIds = new Set(nearby.map(s => s._id))
+          setAllSitters(prev => {
+            const others = prev.filter(s => !nearbyIds.has(s._id))
+            const merged = [...nearby, ...others]
+            if (onNearbySearch) onNearbySearch(merged)
+            return merged
+          })
         } catch {
-          setAllSitters(babysitters)
+          // silently fall back to existing list
         }
       },
       () => {
         setLocationDenied(true)
         setLocating(false)
-        setAllSitters(babysitters)
       },
       { timeout: 8000 }
     )
-  }, []) // only on mount
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Manual re-locate button
   const handleLocate = useCallback(() => {
@@ -210,12 +214,13 @@ export default function MapView({ babysitters, onNearbySearch, fullHeight = fals
           const { data } = await api.get('/babysitters/nearby', {
             params: { lat: coords.latitude, lng: coords.longitude, maxDistance: NEARBY_RADIUS }
           })
-          const nearbyIds = new Set((data.babysitters || []).map(s => s._id))
+          const nearby = data.babysitters || []
+          const nearbyIds = new Set(nearby.map(s => s._id))
           const others = babysitters.filter(s => !nearbyIds.has(s._id))
-          const merged = [...(data.babysitters || []), ...others]
+          const merged = [...nearby, ...others]
           setAllSitters(merged)
-          onNearbySearch(merged, loc)
-          toast.success(`Found ${data.babysitters.length} babysitters near you`)
+          if (onNearbySearch) onNearbySearch(merged)
+          toast.success(`Found ${nearby.length} babysitters near you`)
         } catch {
           toast.error('Failed to fetch nearby babysitters')
         }
@@ -319,7 +324,7 @@ export default function MapView({ babysitters, onNearbySearch, fullHeight = fals
               onClick={() => handleMarkerClick(sitter)}
               zIndex={isSelected ? 15 : isNearby ? 5 : 1}
             >
-              <div className={`relative cursor-pointer transition-all duration-200 ${isSelected ? 'scale-115' : 'hover:scale-105'}`}>
+              <div className={`relative cursor-pointer transition-all duration-200 ${isSelected ? 'scale-110' : 'hover:scale-105'}`}>
                 <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full shadow-lg text-white text-xs font-bold border-2 border-white
                   ${isSelected ? 'bg-pink-400' : isNearby ? 'bg-[#6EC1E4]' : 'bg-[#F9CADA]'}`} style={!isSelected && !isNearby ? { color: '#c06080' } : {}}>
                   <img

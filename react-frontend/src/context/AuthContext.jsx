@@ -11,35 +11,18 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const token = localStorage.getItem('token')
-    const cached = localStorage.getItem('user')
-    if (token && cached) {
-      setUser(JSON.parse(cached))
-      setLoading(false)
-      api.get('/auth/me')
-        .then(res => {
-          setUser(res.data.user)
-          localStorage.setItem('user', JSON.stringify(res.data.user))
-        })
-        .catch(() => {
-          localStorage.removeItem('token')
-          localStorage.removeItem('user')
-          setUser(null)
-        })
-    } else if (token) {
-      api.get('/auth/me')
-        .then(res => {
-          setUser(res.data.user)
-          localStorage.setItem('user', JSON.stringify(res.data.user))
-        })
-        .catch(() => {
-          localStorage.removeItem('token')
-          localStorage.removeItem('user')
-          setUser(null)
-        })
-        .finally(() => setLoading(false))
-    } else {
-      setLoading(false)
-    }
+    if (!token) { setLoading(false); return }
+    api.get('/auth/me')
+      .then(res => {
+        setUser(res.data.user)
+        localStorage.setItem('user', JSON.stringify(res.data.user))
+      })
+      .catch(() => {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        setUser(null)
+      })
+      .finally(() => setLoading(false))
   }, [])
 
   const login = (token, userData) => {

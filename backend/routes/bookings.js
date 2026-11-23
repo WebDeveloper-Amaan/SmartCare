@@ -7,6 +7,7 @@ const router = express.Router();
 const Booking = require('../models/Booking');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
+const sendEmail = require('../utils/sendEmail');
 // ============================================
 // @route   POST /api/bookings
 // @desc    Create a new booking
@@ -23,7 +24,8 @@ router.post('/', protect, authorize('parent'), async (req, res) => {
             childrenCount,
             childrenAges,
             specialInstructions,
-            address
+            address,
+            coordinates
         } = req.body;
         // Get babysitter details
         const babysitter = await User.findById(babysitterId);
@@ -33,8 +35,10 @@ router.post('/', protect, authorize('parent'), async (req, res) => {
         if (!babysitter.verified) {
             return res.status(400).json({ error: 'Babysitter is not verified yet' });
         }
-        // Calculate total amount
-        const totalAmount = duration * babysitter.hourlyRate;
+        // Tiered pricing: 1-2hrs = full rate, 3-4hrs = 10% off, 5+hrs = 20% off
+        const discountRate = duration >= 5 ? 0.20 : duration >= 3 ? 0.10 : 0
+        const effectiveRate = Math.round(babysitter.hourlyRate * (1 - discountRate))
+        const totalAmount = Math.round(duration * effectiveRate)
         // Create booking
         const booking = await Booking.create({
             parent: req.user.id,
@@ -50,10 +54,33 @@ router.post('/', protect, authorize('parent'), async (req, res) => {
             childrenAges,
             specialInstructions,
             address,
+            coordinates: coordinates || undefined,
             hourlyRate: babysitter.hourlyRate,
-            totalAmount
+            totalAmount,
+            discountPercent: discountRate * 100,
+            effectiveHourlyRate: effectiveRate
         });
-        // TODO: Send notification to babysitter
+        // Notify babysitter via socket + email
+        try {
+            const io = req.app.get('io')
+            if (io) {
+                io.to(babysitterId.toString()).emit('receive_message', {
+                    _id: booking._id,
+                    from: req.user.id,
+                    to: babysitterId.toString(),
+                    text: `📅 New booking request from ${req.user.name} on ${new Date(date).toLocaleDateString('en-IN')} (${startTime}–${endTime}). ₹${totalAmount} total.`,
+                    senderName: req.user.name,
+                    createdAt: new Date()
+                })
+            }
+            if (babysitter.email) {
+                sendEmail({
+                    to: babysitter.email,
+                    subject: `📅 New Booking Request from ${req.user.name}`,
+                    html: `<p>Hi ${babysitter.name},</p><p><strong>${req.user.name}</strong> has sent you a booking request.</p><ul><li><strong>Date:</strong> ${new Date(date).toLocaleDateString('en-IN')}</li><li><strong>Time:</strong> ${startTime}–${endTime}</li><li><strong>Duration:</strong> ${duration} hrs</li><li><strong>Amount:</strong> ₹${totalAmount}</li></ul><p>Log in to SmartCare to accept or decline.</p><p>— SmartCare</p>`
+                }).catch(() => {})
+            }
+        } catch (e) { console.error('Booking notify error:', e.message) }
         res.status(201).json({
             success: true,
             booking
@@ -176,7 +203,46 @@ router.put('/:id/status', protect, async (req, res) => {
             }
         }
         await booking.save();
-        // TODO: Send notifications
+        // Notify the other party via socket + email
+        try {
+            const io = req.app.get('io')
+            const otherPartyId = isParent ? booking.babysitter.toString() : booking.parent.toString()
+            const otherPartyName = isParent ? booking.babysitterName : booking.parentName
+            let notifyText = ''
+            let emailSubject = ''
+            let emailHtml = ''
+            if (status === 'confirmed') {
+                notifyText = `✅ ${req.user.name} accepted your booking on ${new Date(booking.date).toLocaleDateString('en-IN')} (${booking.startTime}–${booking.endTime}).`
+                emailSubject = `✅ Booking Confirmed by ${req.user.name}`
+                emailHtml = `<p>Hi,</p><p><strong>${req.user.name}</strong> has <strong>accepted</strong> your booking request.</p><p><strong>Date:</strong> ${new Date(booking.date).toLocaleDateString('en-IN')}<br><strong>Time:</strong> ${booking.startTime}–${booking.endTime}</p><p>— SmartCare</p>`
+            } else if (status === 'cancelled') {
+                notifyText = `❌ ${req.user.name} cancelled the booking on ${new Date(booking.date).toLocaleDateString('en-IN')}.${cancellationReason ? ' Reason: ' + cancellationReason : ''}`
+                emailSubject = `❌ Booking Cancelled by ${req.user.name}`
+                emailHtml = `<p>Hi,</p><p><strong>${req.user.name}</strong> has <strong>cancelled</strong> the booking on ${new Date(booking.date).toLocaleDateString('en-IN')}.</p>${cancellationReason ? `<p><strong>Reason:</strong> ${cancellationReason}</p>` : ''}<p>— SmartCare</p>`
+            } else if (status === 'in-progress') {
+                notifyText = `🟢 ${req.user.name} has started the session. Live GPS tracking is now active.`
+                emailSubject = `🟢 Session Started by ${req.user.name}`
+                emailHtml = `<p>Hi,</p><p><strong>${req.user.name}</strong> has started the babysitting session. Live GPS tracking is now active in your dashboard.</p><p>— SmartCare</p>`
+            } else if (status === 'completed') {
+                notifyText = `🏁 Session completed by ${req.user.name}. Please leave a review!`
+                emailSubject = `🏁 Session Completed`
+                emailHtml = `<p>Hi,</p><p>The babysitting session has been marked as <strong>completed</strong>. Log in to SmartCare to leave a review.</p><p>— SmartCare</p>`
+            }
+            if (notifyText && io) {
+                io.to(otherPartyId).emit('receive_message', {
+                    _id: booking._id + '_' + status,
+                    from: req.user.id,
+                    to: otherPartyId,
+                    text: notifyText,
+                    senderName: req.user.name,
+                    createdAt: new Date()
+                })
+            }
+            if (emailSubject) {
+                const otherUser = await User.findById(otherPartyId).select('email').lean()
+                if (otherUser?.email) sendEmail({ to: otherUser.email, subject: emailSubject, html: emailHtml }).catch(() => {})
+            }
+        } catch (e) { console.error('Status notify error:', e.message) }
         res.json({ success: true, booking });
     } catch (error) {
         console.error('Update booking status error:', error);
@@ -256,4 +322,30 @@ router.get('/user/stats', protect, async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch stats' });
     }
 });
+// ============================================
+// @route   POST /api/bookings/:id/sos
+// @desc    Log an SOS alert for a booking
+// @access  Private (babysitter of that booking)
+// ============================================
+router.post('/:id/sos', protect, async (req, res) => {
+    try {
+        const booking = await Booking.findById(req.params.id)
+        if (!booking) return res.status(404).json({ error: 'Booking not found' })
+        if (booking.babysitter.toString() !== req.user.id)
+            return res.status(403).json({ error: 'Not authorized' })
+        // Store SOS event in booking for audit trail
+        if (!booking.sosAlerts) booking.sosAlerts = []
+        booking.sosAlerts.push({
+            triggeredAt: new Date(),
+            lat: req.body.lat,
+            lng: req.body.lng,
+            message: req.body.message || 'Emergency alert'
+        })
+        await booking.save()
+        res.json({ success: true })
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to log SOS' })
+    }
+})
+
 module.exports = router;
